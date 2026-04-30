@@ -1,0 +1,32 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Installer les dépendances système nécessaires (y compris postgresql-client pour pg_isready)
+RUN apk add --no-cache libc6-compat postgresql-client
+
+# Copier les fichiers de dépendances
+COPY package.json package-lock.json* ./
+
+# Installer les dépendances
+RUN npm ci
+
+# Copier le reste des fichiers
+COPY . .
+
+# Convertir les fins de ligne du script en Unix (LF) et le rendre exécutable
+RUN sed -i 's/\r$//' scripts/docker-entrypoint.sh && \
+    chmod +x scripts/docker-entrypoint.sh
+
+# Créer un script wrapper qui convertit les fins de ligne avant d'exécuter le script
+RUN echo '#!/bin/sh' > /entrypoint-wrapper.sh && \
+    echo 'sed -i "s/\\r$//" /app/scripts/docker-entrypoint.sh 2>/dev/null || true' >> /entrypoint-wrapper.sh && \
+    echo 'exec /app/scripts/docker-entrypoint.sh "$@"' >> /entrypoint-wrapper.sh && \
+    chmod +x /entrypoint-wrapper.sh
+
+# Exposer le port
+EXPOSE 3000
+
+# La commande sera surchargée par docker-compose
+CMD ["npm", "run", "dev"]
+

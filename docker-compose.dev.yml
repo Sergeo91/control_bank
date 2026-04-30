@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: mission_banque_db_dev
+    environment:
+      POSTGRES_USER: mission_banque_user
+      POSTGRES_PASSWORD: mission_banque_password
+      POSTGRES_DB: mission_banque_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mission_banque_user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: mission_banque_web_dev
+    ports:
+      - "0.0.0.0:3000:3000"
+    environment:
+      DATABASE_URL: postgresql://mission_banque_user:mission_banque_password@db:5432/mission_banque_db
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      ADMIN_PASSWORD: admin123
+      NODE_ENV: development
+      # Définir votre IP locale ici pour l'affichage dans les logs
+      HOST_IP: 192.168.1.65
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["/entrypoint-wrapper.sh"]
+    command: sh -c "npm install && npx next dev -H 0.0.0.0"
+
+volumes:
+  postgres_data_dev:
+

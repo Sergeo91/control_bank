@@ -1,0 +1,24 @@
+# Configuration Render pour déploiement automatique
+# Documentation: https://render.com/docs/yaml-spec
+# 
+# IMPORTANT: Créez d'abord la base de données PostgreSQL manuellement dans Render,
+# puis ajoutez-la comme "Linked Resource" dans les variables d'environnement du service web.
+
+services:
+  # Service web (Next.js)
+  - type: web
+    name: mission-suivi-banque
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # NEXT_PUBLIC_APP_URL et ADMIN_PASSWORD seront ajoutés manuellement après le déploiement
+      # DATABASE_URL sera ajouté automatiquement en liant la base de données PostgreSQL
+      # Créez d'abord la DB dans Render Dashboard > New > PostgreSQL
+      # Puis dans ce service > Environment > Link Resource > Sélectionnez votre DB
+    healthCheckPath: /
+    autoDeploy: true
+
