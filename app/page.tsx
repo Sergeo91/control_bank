@@ -59,6 +59,53 @@ interface RubriqueEvaluation {
   showDetails: boolean; // Pour afficher/masquer Critères et Mode de vérification
 }
 
+/** Normalise les rubriques (pg/json peuvent renvoyer null, ou très rarement une chaîne JSON). */
+function normalizeRubriquesList(raw: unknown): Volet['rubriques'] {
+  if (Array.isArray(raw)) {
+    return raw.map((item) => {
+      const r = item as {
+        id: unknown;
+        numero: unknown;
+        libelle: string;
+        composante_evaluee?: string;
+        criteres_indicateurs?: string;
+        mode_verification?: string;
+      };
+      return {
+        ...r,
+        id: Number(r.id),
+        numero: Number(r.numero),
+      };
+    });
+  }
+  if (raw == null) return [];
+  if (typeof raw === 'string') {
+    try {
+      return normalizeRubriquesList(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizeVoletsFromApi(raw: unknown): Volet[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((v) => {
+    const row = v as Volet;
+    return {
+      ...row,
+      id: Number(row.id),
+      rubriques: normalizeRubriquesList(row.rubriques),
+    };
+  });
+}
+
+function findVoletById(volets: Volet[], selectedVoletId: number | null): Volet | undefined {
+  if (selectedVoletId == null) return undefined;
+  return volets.find((v) => Number(v.id) === Number(selectedVoletId));
+}
+
 export default function HomePage() {
   // Données de référence
   const [villes, setVilles] = useState<Ville[]>([]);
@@ -148,13 +195,13 @@ export default function HomePage() {
   useEffect(() => {
     // Charger les données de référence
     Promise.all([
-      fetch('/api/villes').then((r) => r.json()),
-      fetch('/api/volets').then((r) => r.json()),
-      fetch('/api/bareme').then((r) => r.json()),
+      fetch('/api/villes', { cache: 'no-store' }).then((r) => r.json()),
+      fetch('/api/volets', { cache: 'no-store' }).then((r) => r.json()),
+      fetch('/api/bareme', { cache: 'no-store' }).then((r) => r.json()),
     ])
       .then(([villesData, voletsData, baremeData]) => {
         setVilles(villesData.villes || []);
-        setVolets(voletsData.volets || []);
+        setVolets(normalizeVoletsFromApi(voletsData.volets));
         setBareme(baremeData.bareme || []);
       })
       .catch((error) => {
@@ -225,10 +272,11 @@ export default function HomePage() {
   // Initialiser les évaluations quand le volet change
   useEffect(() => {
     if (selectedVolet) {
-      const volet = volets.find((v) => v.id === selectedVolet);
-      if (volet && volet.rubriques) {
+      const volet = findVoletById(volets, selectedVolet);
+      const rubriques = volet?.rubriques ?? [];
+      if (rubriques.length > 0) {
         const initialEvaluations: Record<number, RubriqueEvaluation> = {};
-        volet.rubriques.forEach((rubrique) => {
+        rubriques.forEach((rubrique) => {
           initialEvaluations[rubrique.id] = {
             rubriqueId: rubrique.id,
             note: null,
@@ -238,6 +286,8 @@ export default function HomePage() {
           };
         });
         setEvaluations(initialEvaluations);
+      } else {
+        setEvaluations({});
       }
     } else {
       setEvaluations({});
@@ -294,8 +344,8 @@ export default function HomePage() {
     }
 
     // Trouver le volet actif et ses rubriques
-    const activeVolet = volets.find((v) => v.id === selectedVolet);
-    if (!activeVolet || !activeVolet.rubriques) {
+    const activeVolet = findVoletById(volets, selectedVolet);
+    if (!activeVolet || !activeVolet.rubriques?.length) {
       toast.error('Volet invalide');
       return;
     }
@@ -408,7 +458,7 @@ export default function HomePage() {
     // Pas de toast sur fermeture du barème
   };
 
-  const activeVolet = volets.find((v) => v.id === selectedVolet);
+  const activeVolet = findVoletById(volets, selectedVolet);
 
   return (
     <div className="max-w-4xl mx-auto px-2 sm:px-4 overflow-x-hidden w-full">

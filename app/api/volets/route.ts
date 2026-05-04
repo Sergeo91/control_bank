@@ -9,16 +9,19 @@ export async function GET(request: NextRequest) {
     const pool = getPool();
     const result = await pool.query(
       `SELECT v.id, v.code, v.libelle, v.ordre,
-              json_agg(
-                json_build_object(
-                  'id', r.id,
-                  'numero', r.numero,
-                  'libelle', r.libelle,
-                  'composante_evaluee', r.composante_evaluee,
-                  'criteres_indicateurs', r.criteres_indicateurs,
-                  'mode_verification', r.mode_verification
-                ) ORDER BY r.numero
-              ) FILTER (WHERE r.id IS NOT NULL) as rubriques
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'id', r.id,
+                    'numero', r.numero,
+                    'libelle', r.libelle,
+                    'composante_evaluee', r.composante_evaluee,
+                    'criteres_indicateurs', r.criteres_indicateurs,
+                    'mode_verification', r.mode_verification
+                  ) ORDER BY r.numero
+                ) FILTER (WHERE r.id IS NOT NULL),
+                '[]'::json
+              ) as rubriques
        FROM volet v
        LEFT JOIN rubrique r ON v.id = r.volet_id
        GROUP BY v.id, v.code, v.libelle, v.ordre
