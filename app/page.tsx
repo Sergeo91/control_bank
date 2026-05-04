@@ -124,6 +124,10 @@ export default function HomePage() {
 
   // Évaluations par rubrique
   const [evaluations, setEvaluations] = useState<Record<number, RubriqueEvaluation>>({});
+  /** Rubriques chargées à la sélection du volet (source fiable vs json_agg du GET /api/volets). */
+  const [voletRubriques, setVoletRubriques] = useState<Volet['rubriques']>([]);
+  const [voletRubriquesLoading, setVoletRubriquesLoading] = useState(false);
+  const [voletRubriquesError, setVoletRubriquesError] = useState(false);
   const [showBareme, setShowBareme] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
@@ -269,14 +273,32 @@ export default function HomePage() {
     }
   }, [selectedControleur]);
 
-  // Initialiser les évaluations quand le volet change
+  // Charger les rubriques au choix du volet (endpoint dédié = même source que l’export, fiable en prod)
   useEffect(() => {
-    if (selectedVolet) {
-      const volet = findVoletById(volets, selectedVolet);
-      const rubriques = volet?.rubriques ?? [];
-      if (rubriques.length > 0) {
+    if (!selectedVolet) {
+      setVoletRubriques([]);
+      setVoletRubriquesLoading(false);
+      setVoletRubriquesError(false);
+      setEvaluations({});
+      return;
+    }
+
+    let cancelled = false;
+    setVoletRubriques([]);
+    setVoletRubriquesLoading(true);
+    setVoletRubriquesError(false);
+
+    fetch(`/api/volets/${selectedVolet}/rubriques`, { cache: 'no-store' })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('rubriques');
+        return res.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const list = normalizeRubriquesList(data.rubriques);
+        setVoletRubriques(list);
         const initialEvaluations: Record<number, RubriqueEvaluation> = {};
-        rubriques.forEach((rubrique) => {
+        list.forEach((rubrique) => {
           initialEvaluations[rubrique.id] = {
             rubriqueId: rubrique.id,
             note: null,
@@ -286,13 +308,23 @@ export default function HomePage() {
           };
         });
         setEvaluations(initialEvaluations);
-      } else {
-        setEvaluations({});
-      }
-    } else {
-      setEvaluations({});
-    }
-  }, [selectedVolet, volets]);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setVoletRubriques([]);
+          setVoletRubriquesError(true);
+          setEvaluations({});
+          toast.error('Impossible de charger les rubriques de ce volet.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setVoletRubriquesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedVolet]);
 
   const updateRubriqueNote = (rubriqueId: number, note: number) => {
     setEvaluations((prev) => ({
@@ -343,20 +375,27 @@ export default function HomePage() {
       return;
     }
 
-    // Trouver le volet actif et ses rubriques
     const activeVolet = findVoletById(volets, selectedVolet);
-    if (!activeVolet || !activeVolet.rubriques?.length) {
+    if (!activeVolet) {
       toast.error('Volet invalide');
+      return;
+    }
+    if (voletRubriquesLoading) {
+      toast.error('Chargement des rubriques en cours…');
+      return;
+    }
+    if (voletRubriquesError || voletRubriques.length === 0) {
+      toast.error('Aucune rubrique à évaluer pour ce volet. Vérifiez les données ou réessayez.');
       return;
     }
 
     // Vérifier que toutes les rubriques du volet ont une note
-    const rubriquesAvecNote = activeVolet.rubriques
+    const rubriquesAvecNote = voletRubriques
       .map((rubrique) => evaluations[rubrique.id])
       .filter((e) => e && e.note !== null && e.note !== undefined);
 
-    if (rubriquesAvecNote.length !== activeVolet.rubriques.length) {
-      const rubriquesManquantes = activeVolet.rubriques.length - rubriquesAvecNote.length;
+    if (rubriquesAvecNote.length !== voletRubriques.length) {
+      const rubriquesManquantes = voletRubriques.length - rubriquesAvecNote.length;
       toast.error(`Veuillez attribuer une note à toutes les rubriques. Il manque ${rubriquesManquantes} note(s).`);
       return;
     }
@@ -428,6 +467,7 @@ export default function HomePage() {
         // Conserver les sélections pour permettre de changer de volet facilement
         // Réinitialiser seulement le volet et les évaluations
         setSelectedVolet(null);
+        setVoletRubriques([]);
         setEvaluations({});
         // Les autres champs (Ville, Établissement, Période, Contrôleur) sont conservés
         // Si l'utilisateur change de ville, les champs dépendants seront réinitialisés automatiquement
@@ -448,6 +488,7 @@ export default function HomePage() {
       setSelectedPeriode(null);
       setSelectedControleur(null);
       setSelectedVolet(null);
+      setVoletRubriques([]);
       setEvaluations({});
       toast.error('Évaluation annulée.');
     }
@@ -594,12 +635,14 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Évaluation des rubriques */}
-        {activeVolet && activeVolet.rubriques && activeVolet.rubriques.length > 0 && (
+        {/* Évaluation des rubriques (données via GET /api/volets/[id]/rubriques) */}
+        {selectedVolet && (
           <div className="card bg-base-100 shadow-xl overflow-x-hidden">
             <div className="card-body p-4 sm:p-6 overflow-x-hidden">
               <div className="mb-4">
-                <h2 className="card-title text-sm sm:text-base md:text-lg mb-2 sm:mb-0">{activeVolet.libelle}</h2>
+                <h2 className="card-title text-sm sm:text-base md:text-lg mb-2 sm:mb-0">
+                  {activeVolet?.libelle ?? 'Volet'}
+                </h2>
                 <div className="sm:hidden mt-2">
                   <button
                     type="button"
@@ -621,6 +664,20 @@ export default function HomePage() {
                   </button>
                 </div>
               </div>
+
+              {voletRubriquesLoading && (
+                <p className="text-center text-base-content/70 py-8">Chargement des rubriques…</p>
+              )}
+              {!voletRubriquesLoading && voletRubriquesError && (
+                <p className="text-center text-error py-6">
+                  Impossible de charger les rubriques. Réessayez ou sélectionnez à nouveau le volet.
+                </p>
+              )}
+              {!voletRubriquesLoading && !voletRubriquesError && voletRubriques.length === 0 && (
+                <p className="text-center text-base-content/70 py-6">
+                  Aucune rubrique n&apos;est configurée pour ce volet dans la base de données.
+                </p>
+              )}
 
               {/* Modal du barème */}
               {showBareme && (
@@ -653,7 +710,7 @@ export default function HomePage() {
               )}
 
               <div className="space-y-4 overflow-x-hidden">
-                {activeVolet.rubriques.map((rubrique) => {
+                {voletRubriques.map((rubrique) => {
                   const evaluation = evaluations[rubrique.id] || {
                     rubriqueId: rubrique.id,
                     note: null,
@@ -809,7 +866,12 @@ export default function HomePage() {
             <button
               type="submit"
               className="flex-1 px-4 py-2 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              disabled={isSubmitting}
+              disabled={
+                isSubmitting ||
+                voletRubriquesLoading ||
+                voletRubriquesError ||
+                voletRubriques.length === 0
+              }
             >
               {isSubmitting ? 'Enregistrement...' : 'Valider'}
             </button>
