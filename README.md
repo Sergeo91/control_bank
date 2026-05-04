@@ -626,3 +626,5 @@ git checkout main
 - `git checkout main` : Revenir sur votre branche locale (maintenant identique à la distante)
 
 **Méthode 3 : Supprimer et cloner à nouveau (Solution radicale)**
+
+# test github
